@@ -1,34 +1,6 @@
 # scrambler
 
-Compile a constrained JSON-Schema **dialect** into a Kùzu (ryugraph) graph schema — node and
-relationship table DDL — and matching runtime **dataclasses**, from one source document.
-
-A *schema document* is a JSON Schema restricted to the dialect (`dialect.json`): the subset
-that lowers, by construction, to a property-graph schema. The dialect is the contract — a
-document valid against it is compilable, and the compilers in `compile.py` are the other face
-of that contract (anything the dialect admits must lower).
-
-```python
-import scrambler
-
-schema = scrambler.load_schema("my.schema.json")
-
-# 1. Kùzu DDL — CREATE NODE/REL TABLE statements, in dependency order
-for ddl in scrambler.schema_ddls(schema):
-    conn.execute(ddl)
-
-# 2. Runtime dataclasses for any node type
-Widget = scrambler.dataclass_for("Widget", schema)
-row = scrambler.encode_row("Widget", schema, Widget(id="w1", label="hi"))
-
-# 3. Validate a document against the dialect
-import jsonschema
-jsonschema.Draft202012Validator(scrambler.dialect()).validate(schema)
-```
-
-Each `$defs` entry carries an `x-kuzu` annotation: `table: "node"` (+ `primaryKey`, optional
-`identity`) or `table: "rel"` (+ `pairs`). Field types lower through codecs (string/int/float/
-bool, native lists, maps, and tagged unions with a numeric projection).
+Compile a JSON schema dialect into a Kùzu graph schema, and matching dataclasses.
 
 ## Develop
 
@@ -38,9 +10,26 @@ uv run pytest
 uv run ruff check
 ```
 
-Pure stdlib at runtime; `ryugraph` and `jsonschema` are dev-only (for the tests that execute
-the generated DDL and validate against the dialect).
-
 ## Licence
 
-MIT Róisín Grannell
+MIT License
+
+Copyright (c) 2026 Róisín Grannell
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

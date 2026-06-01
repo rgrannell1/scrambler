@@ -70,6 +70,9 @@ def Opt(inner: Callable[[str], Codec]) -> Callable[[str], Codec]:
             encode=lambda v: codec.encode(v) if v is not None else nulls,
             decode=lambda r: None if all(r[c.name] is None for c in codec.columns)
             else codec.decode(r),
+            # Forward the inner codec's projections; project() already maps None -> None.
+            projections=codec.projections,
+            project=codec.project,
         )
     return make
 

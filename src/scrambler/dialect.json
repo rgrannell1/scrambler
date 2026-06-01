@@ -130,7 +130,14 @@
             },
             "projection": { "type": "string", "description": "Name of the numeric projection column." }
           },
-          "required": ["codec"]
+          "required": ["codec"],
+          "allOf": [
+            {
+              "description": "The native UNION codec needs its variants and projection column to lower.",
+              "if": { "properties": { "codec": { "const": "union" } } },
+              "then": { "required": ["members", "projection"] }
+            }
+          ]
         }
       },
       "required": ["oneOf", "description", "x-kuzu"]

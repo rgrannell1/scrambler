@@ -8,6 +8,7 @@ lower here.
 """
 
 import json
+from copy import deepcopy
 from dataclasses import field as dc_field
 from dataclasses import make_dataclass
 from pathlib import Path
@@ -57,7 +58,9 @@ def codec_for(schema: dict, defs: dict):
     target = resolve(schema, defs)
     x_kuzu = target.get("x-kuzu", {})
     if x_kuzu.get("codec") == "scalar":
-        return Scalar
+        # Bind a field-derived projection name so two scalar fields don't collide
+        # on a shared default column (x-kuzu.projection overrides it when given).
+        return lambda name: Scalar(name, x_kuzu.get("projection") or f"{name}_num")
     if x_kuzu.get("codec") == "union":
         return NativeUnion(x_kuzu["members"], x_kuzu["projection"])
     declared = target.get("type")
@@ -88,12 +91,16 @@ def value_kuzu(object_schema: dict, defs: dict) -> str:
 
 
 def node_fields(node: dict, defs: dict) -> list[tuple[str, dict]]:
-    """A node's (name, schema) fields: allOf base fragments first, then own properties."""
-    fields: list[tuple[str, dict]] = []
+    """A node's (name, schema) fields: allOf base fragments first, then own properties.
+
+    Own properties override a base fragment's field of the same name (keeping the base
+    slot's position), so a re-declared field yields one column, not a duplicate.
+    """
+    fields: dict[str, dict] = {}
     for parent in node.get("allOf", ()):
-        fields.extend(resolve(parent, defs).get("properties", {}).items())
-    fields.extend(node.get("properties", {}).items())
-    return fields
+        fields.update(resolve(parent, defs).get("properties", {}))
+    fields.update(node.get("properties", {}))
+    return list(fields.items())
 
 
 def node_ddl(label: str, node: dict, defs: dict) -> str:
@@ -119,7 +126,9 @@ def merge_for(label: str, document: dict) -> str:
     primary_key = node["x-kuzu"]["primaryKey"]
     sets = ", ".join(f"n.{column.name} = ${column.name}"
                      for column in columns if column.name != primary_key)
-    return f"MERGE (n:{label} {{{primary_key}: ${primary_key}}}) SET {sets}"
+    match = f"MERGE (n:{label} {{{primary_key}: ${primary_key}}})"
+    # A node whose only column is its primary key has nothing to SET — emit a bare MERGE.
+    return f"{match} SET {sets}" if sets else match
 
 
 def encode_mapping(label: str, document: dict, values: dict) -> dict:
@@ -161,6 +170,14 @@ def node_labels(document: dict) -> tuple[str, ...]:
     return tuple(label for label, d in document["$defs"].items() if is_kind(d, "node"))
 
 
+def _field_spec(default: Any):
+    """A dataclass field spec for a default; mutable list/dict defaults need a factory."""
+    if isinstance(default, (list, dict)):
+        # Deep-copy so instances never share the same mutable default object.
+        return dc_field(default_factory=lambda value=default: deepcopy(value))
+    return dc_field(default=default)
+
+
 def dataclass_for(label: str, document: dict) -> type:
     """Compile the runtime stored-record dataclass for one node type."""
     defs = document["$defs"]
@@ -172,7 +189,7 @@ def dataclass_for(label: str, document: dict) -> type:
         if default is _MISSING:
             plain.append((name, annotation))
         else:
-            defaulted.append((name, annotation, dc_field(default=default)))
+            defaulted.append((name, annotation, _field_spec(default)))
     cls = make_dataclass(label, [*plain, *defaulted], frozen=True)
     cls.__doc__ = node.get("description", "")
     return cls
