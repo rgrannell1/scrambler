@@ -1,0 +1,40 @@
+[project]
+name = "scrambler"
+version = "0.1.0"
+description = "Compile a JSON-Schema dialect into a Kùzu/ryugraph schema and runtime dataclasses."
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "pytest",
+    "jsonschema>=4.26.0",
+    "ryugraph>=25.9.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 100
+preview = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "BLE", "SIM", "RUF", "PLR", "PLC", "C"]
+
+[tool.ruff.lint.pylint]
+max-args = 4
+max-statements = 14
+
+[tool.ruff.lint.mccabe]
+max-complexity = 7
+
+[tool.ruff.lint.per-file-ignores]
+# Assertion literals are idiomatic in tests, not "magic values".
+"tests/**" = ["PLR2004"]

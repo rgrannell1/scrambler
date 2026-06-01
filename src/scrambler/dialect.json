@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2023-02/schema",
+  "$id": "https://scrambler/dialect",
+  "description": "The scrambler dialect: the subset of JSON Schema that lowers to a Kùzu schema and a dataclass. A document valid against this meta-schema is compilable by construction.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "description": "The JSON Schema draft this document uses." },
+    "$id": { "type": "string", "description": "The identifier of the schema document." },
+    "description": { "type": "string", "description": "What the schema document describes." },
+    "$defs": {
+      "type": "object",
+      "description": "Every node type, relationship type, and reusable field type.",
+      "additionalProperties": { "$ref": "#/$defs/typeDef" }
+    }
+  },
+  "required": ["$schema", "$defs"],
+  "$defs": {
+    "typeDef": {
+      "description": "Any legal $defs entry: a field type, a base fragment, a node, or a relationship.",
+      "oneOf": [
+        { "$ref": "#/$defs/scalarType" },
+        { "$ref": "#/$defs/arrayType" },
+        { "$ref": "#/$defs/mapType" },
+        { "$ref": "#/$defs/unionType" },
+        { "$ref": "#/$defs/baseType" },
+        { "$ref": "#/$defs/nodeType" },
+        { "$ref": "#/$defs/relType" }
+      ]
+    },
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A reference into $defs, with an optional per-use default value.",
+      "properties": {
+        "$ref": { "type": "string", "description": "A JSON pointer into #/$defs." },
+        "default": { "description": "An optional default value for this property usage." }
+      },
+      "required": ["$ref"]
+    },
+    "propertyMap": {
+      "type": "object",
+      "description": "Object properties, each a $ref into $defs (no inline types).",
+      "additionalProperties": { "$ref": "#/$defs/ref" }
+    },
+    "scalarTypeName": {
+      "description": "A scalar JSON Schema type, optionally unioned with null.",
+      "oneOf": [
+        { "enum": ["string", "integer", "number", "boolean"] },
+        {
+          "type": "array",
+          "items": { "enum": ["string", "integer", "number", "boolean", "null"] },
+          "minItems": 2
+        }
+      ]
+    },
+    "scalarType": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A scalar column (string/integer/number/boolean), nullable when unioned with null.",
+      "properties": {
+        "type": { "$ref": "#/$defs/scalarTypeName" },
+        "format": { "type": "string", "description": "A format hint informing the Kùzu type." },
+        "enum": { "type": "array", "description": "Permitted values; validation-only, lowers to a plain STRING." },
+        "description": { "type": "string", "description": "What this field means." }
+      },
+      "required": ["type", "description"]
+    },
+    "encodeJson": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Marks a column as JSON-encoded into a STRING (the escape hatch).",
+      "properties": { "encode": { "const": "json", "description": "Store as a JSON STRING." } },
+      "required": ["encode"]
+    },
+    "arrayType": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A list column; its items are a $ref. Native LIST or JSON-encoded via x-kuzu.",
+      "properties": {
+        "type": { "const": "array" },
+        "items": { "$ref": "#/$defs/ref" },
+        "description": { "type": "string", "description": "What the list holds." },
+        "x-kuzu": { "$ref": "#/$defs/encodeJson" }
+      },
+      "required": ["type", "items", "description"]
+    },
+    "mapType": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A string-keyed map column; values are a $ref. Native MAP or JSON-encoded.",
+      "properties": {
+        "type": { "const": "object" },
+        "additionalProperties": { "$ref": "#/$defs/ref" },
+        "description": { "type": "string", "description": "What the map holds." },
+        "x-kuzu": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Store as a native MAP (codec:map) or a JSON STRING (encode:json).",
+          "properties": {
+            "encode": { "const": "json" },
+            "codec": { "const": "map" }
+          }
+        }
+      },
+      "required": ["type", "additionalProperties", "description"]
+    },
+    "unionType": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A union scalar over $ref variants, lowered by the scalar codec.",
+      "properties": {
+        "oneOf": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ref" },
+          "minItems": 2,
+          "description": "The variant types."
+        },
+        "description": { "type": "string", "description": "What the union holds." },
+        "x-kuzu": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The union codec, its native variants, and numeric projection column.",
+          "properties": {
+            "codec": { "enum": ["scalar", "union"], "description": "Lower as a JSON scalar STRING or a native UNION." },
+            "members": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "Native UNION variant name -> Kùzu type."
+            },
+            "projection": { "type": "string", "description": "Name of the numeric projection column." }
+          },
+          "required": ["codec"]
+        }
+      },
+      "required": ["oneOf", "description", "x-kuzu"]
+    },
+    "baseType": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A reusable base fragment, mixed into nodes via allOf.",
+      "properties": {
+        "type": { "const": "object" },
+        "additionalProperties": { "const": false },
+        "description": { "type": "string", "description": "What the fragment provides." },
+        "properties": { "$ref": "#/$defs/propertyMap" },
+        "required": { "type": "array", "items": { "type": "string" }, "description": "Non-null fields." },
+        "x-kuzu": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Marks this as a base fragment.",
+          "properties": { "role": { "const": "base" } },
+          "required": ["role"]
+        }
+      },
+      "required": ["type", "additionalProperties", "description", "properties", "x-kuzu"]
+    },
+    "nodeType": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A node table: base fragments via allOf, own properties, and a primary key.",
+      "properties": {
+        "type": { "const": "object" },
+        "additionalProperties": { "const": false },
+        "description": { "type": "string", "description": "What the node represents." },
+        "allOf": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ref" },
+          "description": "Base fragments to mix in."
+        },
+        "properties": { "$ref": "#/$defs/propertyMap" },
+        "required": { "type": "array", "items": { "type": "string" }, "description": "Non-null fields." },
+        "x-kuzu": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The Kùzu node-table directives.",
+          "properties": {
+            "table": { "const": "node" },
+            "primaryKey": { "type": "string", "description": "The primary-key column." },
+            "identity": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Fields whose package-qualified join forms the id (for generic ingest)."
+            }
+          },
+          "required": ["table", "primaryKey"]
+        }
+      },
+      "required": ["type", "additionalProperties", "description", "properties", "x-kuzu"]
+    },
+    "relType": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A relationship table: FROM/TO pairs, optional edge properties and multiplicity.",
+      "properties": {
+        "type": { "const": "object" },
+        "additionalProperties": { "const": false },
+        "description": { "type": "string", "description": "What the relationship links." },
+        "properties": { "$ref": "#/$defs/propertyMap" },
+        "x-kuzu": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The Kùzu rel-table directives.",
+          "properties": {
+            "table": { "const": "rel" },
+            "pairs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "description": "The FROM/TO node-label pairs."
+            },
+            "multiplicity": {
+              "enum": ["ONE_ONE", "ONE_MANY", "MANY_ONE", "MANY_MANY"],
+              "description": "The edge multiplicity constraint."
+            },
+            "via": { "type": "string", "description": "The field that selects the concrete target." }
+          },
+          "required": ["table", "pairs"]
+        }
+      },
+      "required": ["type", "additionalProperties", "description", "properties", "x-kuzu"]
+    }
+  }
+}
