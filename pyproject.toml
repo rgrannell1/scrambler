@@ -3,7 +3,10 @@ name = "scrambler"
 version = "0.1.0"
 description = "Compile a JSON-Schema dialect into a Kùzu/ryugraph schema and runtime dataclasses."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "jsonschema>=4.26.0",
+    "ryugraph>=25.9.2",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -13,8 +16,7 @@ build-backend = "hatchling.build"
 dev = [
     "ruff",
     "pytest",
-    "jsonschema>=4.26.0",
-    "ryugraph>=25.9.2",
+    "hypothesis>=6.0",
 ]
 
 [tool.pytest.ini_options]

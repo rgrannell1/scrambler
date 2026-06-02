@@ -6,6 +6,7 @@ The compilers live in `compile`; `dialect()` returns the meta-schema to validate
 """
 
 from scrambler.compile import (
+    check_schema,
     codec_for,
     dataclass_for,
     dialect,
@@ -21,8 +22,11 @@ from scrambler.compile import (
     rel_ddl,
     schema_ddls,
 )
+from scrambler.store import Scrambler
 
 __all__ = [
+    "Scrambler",
+    "check_schema",
     "codec_for",
     "dataclass_for",
     "dialect",

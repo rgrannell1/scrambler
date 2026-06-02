@@ -2,6 +2,32 @@
 
 Compile a JSON schema dialect into a Kùzu graph schema, and matching dataclasses.
 
+## Usage
+
+Write one schema document (a JSON Schema constrained to the *dialect*), then drive it through
+the `Scrambler` facade — it holds a connection and the defined schema so you never thread a
+`(label, document)` pair around by hand.
+
+```python
+import scrambler
+
+# A connection, a Database, or a path to open.
+scram = scrambler.Scrambler("graph.db")
+
+# Validate the document against the dialect, create its node/rel tables, adopt it.
+# clear=True also empties every node table for a fresh start.
+scram.define(my_schema, clear=False)
+
+# A runtime dataclass for a node type (tidy error if it isn't a node in the schema).
+Widget = scram.dataclass("Widget")
+
+# MERGE a record into the graph (its dataclass name is the node label).
+scram.insert(Widget(id="w1", label="hello"))
+```
+
+The compile-layer functions (`schema_ddls`, `dataclass_for`, `merge_for`, `encode_row`, …)
+remain exported for direct use; `Scrambler` is the thin stateful wrapper over them.
+
 ## Develop
 
 ```sh

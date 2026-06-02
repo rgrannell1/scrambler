@@ -27,6 +27,7 @@ from scrambler.schema_dsl import (
     Opt,
     Scalar,
     Str,
+    union_has_string_member,
 )
 
 # JSON Schema scalar `type` -> codec constructor.
@@ -124,7 +125,7 @@ def merge_for(label: str, document: dict) -> str:
         codec = codec_for(schema, defs)(name)
         columns.extend((*codec.columns, *codec.projections))
     primary_key = node["x-kuzu"]["primaryKey"]
-    sets = ", ".join(f"n.{column.name} = ${column.name}"
+    sets = ", ".join(f"n.{column.name} = {column.binding()}"
                      for column in columns if column.name != primary_key)
     match = f"MERGE (n:{label} {{{primary_key}: ${primary_key}}})"
     # A node whose only column is its primary key has nothing to SET — emit a bare MERGE.
@@ -155,6 +156,25 @@ def rel_ddl(label: str, rel: dict) -> str:
 
 def is_kind(definition: dict, kind: str) -> bool:
     return definition.get("x-kuzu", {}).get("table") == kind
+
+
+def check_schema(document: dict) -> None:
+    """Reject a document the dialect admits structurally but that can't round-trip faithfully.
+
+    The dialect (a JSON Schema) checks shape; this checks lowering semantics. Currently it
+    rejects a native UNION with a STRING member, since a string that looks like another
+    member's literal coerces into that member and loses its type on read — use the JSON scalar
+    codec (x-kuzu.codec='scalar') for a union that includes strings. Raises ValueError on the
+    first violation; returns None when the document is sound.
+    """
+    for label, definition in document["$defs"].items():
+        x_kuzu = definition.get("x-kuzu", {})
+        if x_kuzu.get("codec") == "union" and union_has_string_member(x_kuzu["members"]):
+            raise ValueError(
+                f"{label!r} is a native UNION with a STRING member, which can't round-trip: "
+                f"numeric- or boolean-looking strings coerce into the other member. Use the "
+                f"JSON scalar codec (x-kuzu.codec='scalar') for a union that includes strings."
+            )
 
 
 def schema_ddls(document: dict) -> list[str]:
