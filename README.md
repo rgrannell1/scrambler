@@ -1,5 +1,7 @@
 # scrambler
 
+[![CI](https://github.com/rgrannell1/scrambler/actions/workflows/ci.yml/badge.svg)](https://github.com/rgrannell1/scrambler/actions/workflows/ci.yml)
+
 Compile a JSON schema dialect into a Kùzu graph schema, and matching dataclasses.
 
 ## Usage
