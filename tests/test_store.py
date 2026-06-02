@@ -56,28 +56,28 @@ def widget_rows(scram: scrambler.Scrambler) -> list:
 def test_define_creates_the_schema_and_reports_its_node_labels():
     """Proves define() runs the DDL so the declared node labels are then queryable."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
-    assert scram.labels == ("Widget",)
+    assert scram.schema.labels == ("Widget",)
 
 
 def test_define_accepts_an_existing_connection():
     """Proves the constructor takes a live connection, not only a path."""
     connection = ryugraph.Connection(ryugraph.Database(temp_db_path()))
     scram = scrambler.Scrambler(connection).define(FIXTURE)
-    assert scram.labels == ("Widget",)
+    assert scram.schema.labels == ("Widget",)
 
 
 def test_insert_round_trips_a_dataclass_record_into_the_graph():
     """Proves a record built from the compiled dataclass is stored and read back unchanged."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
-    widget = scram.dataclass("Widget")
-    scram.insert(widget(id="w1", label="hello"))
+    widget = scram.schema.dataclass("Widget")
+    scram.write.insert(widget(id="w1", label="hello"))
     assert widget_rows(scram) == [["w1", "hello"]]
 
 
 def test_insert_mapping_writes_a_node_from_an_explicit_label_and_values():
     """Proves insert_mapping writes a node from a (label, values) pair — no dataclass needed."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
-    scram.insert_mapping("Widget", {"id": "w1", "label": "hello"})
+    scram.write.insert_mapping("Widget", {"id": "w1", "label": "hello"})
     assert widget_rows(scram) == [["w1", "hello"]]
 
 
@@ -85,46 +85,46 @@ def test_insert_mapping_rejects_an_unknown_label():
     """Proves insert_mapping fails fast when the label isn't a node type in the schema."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
     with pytest.raises(ValueError, match=r"not a node type.*Widget"):
-        scram.insert_mapping("Gadget", {"id": "g1"})
+        scram.write.insert_mapping("Gadget", {"id": "g1"})
 
 
 def test_insert_then_get_round_trips_a_record_through_the_facade():
     """Proves a record written with insert reads back equal via get — no raw Cypher needed."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
-    widget = scram.dataclass("Widget")
-    scram.insert(widget(id="w1", label="hello"))
-    assert scram.get("Widget", "w1") == widget(id="w1", label="hello")
+    widget = scram.schema.dataclass("Widget")
+    scram.write.insert(widget(id="w1", label="hello"))
+    assert scram.read.get("Widget", "w1") == widget(id="w1", label="hello")
 
 
 def test_get_returns_none_for_a_missing_node():
     """Proves get yields None when no node has the given primary-key value."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
-    assert scram.get("Widget", "nope") is None
+    assert scram.read.get("Widget", "nope") is None
 
 
 def test_all_returns_every_node_decoded():
     """Proves all returns one decoded record per stored node of the type."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
-    widget = scram.dataclass("Widget")
-    scram.insert(widget(id="w1", label="a"))
-    scram.insert(widget(id="w2", label="b"))
-    assert set(scram.all("Widget")) == {widget(id="w1", label="a"), widget(id="w2", label="b")}
+    widget = scram.schema.dataclass("Widget")
+    scram.write.insert(widget(id="w1", label="a"))
+    scram.write.insert(widget(id="w2", label="b"))
+    assert set(scram.read.all("Widget")) == {widget(id="w1", label="a"), widget(id="w2", label="b")}
 
 
 def test_all_with_where_filters_by_equality():
     """Proves all(label, where=...) returns only nodes whose columns equal the given values."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
-    widget = scram.dataclass("Widget")
-    scram.insert(widget(id="w1", label="keep"))
-    scram.insert(widget(id="w2", label="drop"))
-    assert scram.all("Widget", {"label": "keep"}) == [widget(id="w1", label="keep")]
+    widget = scram.schema.dataclass("Widget")
+    scram.write.insert(widget(id="w1", label="keep"))
+    scram.write.insert(widget(id="w2", label="drop"))
+    assert scram.read.all("Widget", {"label": "keep"}) == [widget(id="w1", label="keep")]
 
 
 def test_all_with_unknown_filter_field_raises():
     """Proves a where key that isn't a field fails fast (no silent match, no Cypher injection)."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
     with pytest.raises(ValueError, match=r"no field.*missing.*available"):
-        scram.all("Widget", {"missing": "x"})
+        scram.read.all("Widget", {"missing": "x"})
 
 
 def test_all_where_filters_a_json_encoded_column_by_value():
@@ -155,40 +155,40 @@ def test_all_where_filters_a_json_encoded_column_by_value():
         },
     }
     scram = scrambler.Scrambler(temp_db_path()).define(encoded)
-    doc = scram.dataclass("Doc")
-    scram.insert(doc(id="d1", tags=["a", "b"]))
-    scram.insert(doc(id="d2", tags=["c"]))
-    assert scram.all("Doc", {"tags": ["a", "b"]}) == [doc(id="d1", tags=["a", "b"])]
+    doc = scram.schema.dataclass("Doc")
+    scram.write.insert(doc(id="d1", tags=["a", "b"]))
+    scram.write.insert(doc(id="d2", tags=["c"]))
+    assert scram.read.all("Doc", {"tags": ["a", "b"]}) == [doc(id="d1", tags=["a", "b"])]
 
 
 def test_all_where_rejects_a_non_equality_filterable_column():
     """Proves filtering on a native MAP column fails fast rather than crashing inside Kùzu."""
     scram = scrambler.Scrambler(temp_db_path()).define(MAPS)
     with pytest.raises(ValueError, match=r"not equality-filterable"):
-        scram.all("Tally", {"counts": {"a": 1}})
+        scram.read.all("Tally", {"counts": {"a": 1}})
 
 
 def test_records_share_the_cached_dataclass():
     """Proves dataclass/get share one cached type, so records compare equal and isinstance works."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
-    widget = scram.dataclass("Widget")
-    scram.insert(widget(id="w1", label="hello"))
-    assert isinstance(scram.get("Widget", "w1"), widget)
-    assert scram.dataclass("Widget") is widget
+    widget = scram.schema.dataclass("Widget")
+    scram.write.insert(widget(id="w1", label="hello"))
+    assert isinstance(scram.read.get("Widget", "w1"), widget)
+    assert scram.schema.dataclass("Widget") is widget
 
 
 def test_dataclass_for_unknown_label_raises_with_available_labels():
     """Proves an unknown label fails fast with a message naming the real node labels."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
     with pytest.raises(ValueError, match=r"not a node type.*Widget"):
-        scram.dataclass("Gadget")
+        scram.schema.dataclass("Gadget")
 
 
 def test_methods_before_define_raise_a_clear_error():
     """Proves using the store before define() points the caller at define()."""
     scram = scrambler.Scrambler(temp_db_path())
     with pytest.raises(RuntimeError, match="call define"):
-        scram.dataclass("Widget")
+        scram.schema.dataclass("Widget")
 
 
 # A node carrying a native Kùzu MAP column — the codec that can't bind a dict directly.
@@ -222,8 +222,8 @@ MAPS = {
 def test_insert_round_trips_a_native_map_column():
     """Proves a native MAP node writes via map($keys, $values), not a dict bound as a STRUCT."""
     scram = scrambler.Scrambler(temp_db_path()).define(MAPS)
-    tally = scram.dataclass("Tally")
-    scram.insert(tally(id="t1", counts={"a": 1, "b": 2}))
+    tally = scram.schema.dataclass("Tally")
+    scram.write.insert(tally(id="t1", counts={"a": 1, "b": 2}))
     stored = scram.connection.execute("MATCH (n:Tally) RETURN n.counts").get_all()
     assert stored == [[{"a": 1, "b": 2}]]
 
@@ -232,7 +232,7 @@ def test_define_with_clear_empties_existing_node_data():
     """Proves clear=True wipes rows left by a previous define against the same database."""
     path = temp_db_path()
     first = scrambler.Scrambler(path).define(FIXTURE)
-    widget = first.dataclass("Widget")
-    first.insert(widget(id="w1", label="hello"))
+    widget = first.schema.dataclass("Widget")
+    first.write.insert(widget(id="w1", label="hello"))
     second = scrambler.Scrambler(path).define(FIXTURE, clear=True)
     assert widget_rows(second) == []

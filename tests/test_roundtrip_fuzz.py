@@ -161,7 +161,7 @@ def store_round_trip(scram: scrambler.Scrambler, document: dict, values: dict) -
     Reads only the canonical columns (the bijection); derived projection columns sit outside
     the round trip. The returned dict should equal `values` exactly.
     """
-    scram.insert(scram.dataclass("Rec")(id="k", **values))
+    scram.write.insert(scram.schema.dataclass("Rec")(id="k", **values))
     defs = document["$defs"]
     properties = defs["Rec"]["properties"]
     read = {}

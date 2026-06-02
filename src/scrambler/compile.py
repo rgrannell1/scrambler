@@ -8,11 +8,13 @@ lower here.
 """
 
 import json
+import re
 from copy import deepcopy
 from dataclasses import field as dc_field, make_dataclass
 from pathlib import Path
 from typing import Any
 
+from scrambler.errors import RecordError, SchemaError
 from scrambler.schema_dsl import (
     _MISSING,
     Bool,
@@ -131,6 +133,16 @@ def merge_for(label: str, document: dict) -> str:
     return f"{match} SET {sets}" if sets else match
 
 
+def merge_many_for(label: str, document: dict) -> str:
+    """The UNWIND batch form of merge_for: one MERGE per row of a bound `$rows` list.
+
+    Each `$param` in the single-row statement becomes `row.param`, so the same encoded mapping
+    that feeds merge_for (columns and projections, native-MAP CASTs and all) feeds each row.
+    """
+    body = re.sub(r"\$(\w+)", r"row.\1", merge_for(label, document))
+    return f"UNWIND $rows AS row {body}"
+
+
 def encode_mapping(label: str, document: dict, values: dict) -> dict:
     """Encode a full field->value mapping into a parameters dict (columns + projections)."""
     defs = document["$defs"]
@@ -169,11 +181,17 @@ def check_schema(document: dict) -> None:
     for label, definition in document["$defs"].items():
         x_kuzu = definition.get("x-kuzu", {})
         if x_kuzu.get("codec") == "union" and union_has_string_member(x_kuzu["members"]):
-            raise ValueError(
+            raise SchemaError(
                 f"{label!r} is a native UNION with a STRING member, which can't round-trip: "
                 f"numeric- or boolean-looking strings coerce into the other member. Use the "
                 f"JSON scalar codec (x-kuzu.codec='scalar') for a union that includes strings."
             )
+
+
+def record_schema(label: str, document: dict) -> dict:
+    """The JSON Schema a node type's record must satisfy: its $defs entry plus the document's
+    $defs, so the property `$ref`s (and their enum/type/required constraints) resolve."""
+    return {**document["$defs"][label], "$defs": document["$defs"]}
 
 
 def schema_ddls(document: dict) -> list[str]:
@@ -272,7 +290,7 @@ def equality_term(key: str, value: Any, field_schema: dict, defs: dict) -> tuple
     codec = codec_for(field_schema, defs)(key)
     columns = codec.columns
     if len(columns) != 1 or columns[0].bind is not None:
-        raise ValueError(
+        raise RecordError(
             f"field {key!r} is not equality-filterable (no single `=` form); filter it in Cypher.")
     name = columns[0].name
     encoded = codec.encode(value)[name]
@@ -295,7 +313,7 @@ def equality_filter(label: str, document: dict, where: dict) -> tuple[str, dict]
     unknown = [key for key in where if key not in fields]
     if unknown:
         available = ", ".join(fields) or "(none)"
-        raise ValueError(
+        raise RecordError(
             f"{label} has no field(s) {', '.join(unknown)} to filter on; available: {available}.")
     terms, params = [], {}
     for key, value in where.items():

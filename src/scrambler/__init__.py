@@ -1,10 +1,11 @@
 """scrambler — compile a JSON-Schema dialect into a Kùzu schema and runtime dataclasses.
 
 The public entry point is `Scrambler`: open a connection, `define` a schema document, then
-derive dataclasses and write rows — it calls the compile layer for you. Those compile-layer
-functions live in `scrambler.compile` and stay importable from here for the dreamfish consumer
-(which imports them by name), but they are plumbing, not the headline API; new code should use
-`Scrambler`, or import the functions explicitly from `scrambler.compile`.
+derive dataclasses and write rows — it calls the compile layer for you. Its errors all derive
+from `ScramblerError`. The compile-layer functions live in `scrambler.compile` and stay
+importable from here for the dreamfish consumer (which imports them by name), but they are
+plumbing, not the headline API; new code should use `Scrambler`, or import explicitly from
+`scrambler.compile`.
 """
 
 # Re-exported for the dreamfish consumer, which imports these by name. They are the plumbing
@@ -21,15 +22,34 @@ from scrambler.compile import (
     dialect_path as dialect_path,
     encode_mapping as encode_mapping,
     encode_row as encode_row,
+    equality_filter as equality_filter,
     identity_fields as identity_fields,
     load_schema as load_schema,
     merge_for as merge_for,
+    merge_many_for as merge_many_for,
     node_ddl as node_ddl,
     node_fields as node_fields,
     node_labels as node_labels,
+    record_schema as record_schema,
     rel_ddl as rel_ddl,
     schema_ddls as schema_ddls,
 )
+from scrambler.errors import (
+    NotDefinedError,
+    QueryError,
+    RecordError,
+    ScramblerError,
+    SchemaError,
+    UnknownLabelError,
+)
 from scrambler.store import Scrambler
 
-__all__ = ["Scrambler"]
+__all__ = [
+    "NotDefinedError",
+    "QueryError",
+    "RecordError",
+    "Scrambler",
+    "ScramblerError",
+    "SchemaError",
+    "UnknownLabelError",
+]
