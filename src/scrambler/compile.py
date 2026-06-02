@@ -9,8 +9,7 @@ lower here.
 
 import json
 from copy import deepcopy
-from dataclasses import field as dc_field
-from dataclasses import make_dataclass
+from dataclasses import field as dc_field, make_dataclass
 from pathlib import Path
 from typing import Any
 

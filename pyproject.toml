@@ -30,6 +30,11 @@ preview = true
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "C4", "BLE", "SIM", "RUF", "PLR", "PLC", "C"]
 
+[tool.ruff.lint.isort]
+# Keep redundant re-export aliases (`x as x`) in one block rather than exploding each onto its
+# own import statement — see the re-exports in scrambler/__init__.py.
+combine-as-imports = true
+
 [tool.ruff.lint.pylint]
 max-args = 4
 max-statements = 14
