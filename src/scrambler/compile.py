@@ -1,11 +1,4 @@
-"""Compilers: a Layer-2 JSON Schema document -> Kùzu DDL and runtime dataclasses.
-
-Consumes a schema document whose $defs hold node types (x-kuzu.table == "node"),
-relationship types (== "rel"), and reusable field types. Every admitted construct
-lowers via a codec constructor from schema_dsl, so the Layer-1 dialect (dialect.json)
-and these compilers stay two faces of one contract: anything the dialect admits must
-lower here.
-"""
+"""Compilers: a Layer-2 JSON Schema document -> Kùzu DDL and runtime dataclasses."""
 
 import json
 import re
@@ -15,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from scrambler.errors import RecordError, SchemaError
+from scrambler.protocols import CodecFactory
 from scrambler.schema_dsl import (
     _MISSING,
     Bool,
@@ -55,16 +49,19 @@ def resolve(schema: dict, defs: dict) -> dict:
     return defs[schema["$ref"].split("/")[-1]] if "$ref" in schema else schema
 
 
-def codec_for(schema: dict, defs: dict):
-    """Map a property schema (possibly a $ref) to a codec constructor (name -> Codec)."""
+def codec_for(schema: dict, defs: dict) -> CodecFactory:
+    """Map a property schema (possibly a $ref) to a codec factory (name -> Codec)."""
     target = resolve(schema, defs)
     x_kuzu = target.get("x-kuzu", {})
+
     if x_kuzu.get("codec") == "scalar":
         # Bind a field-derived projection name so two scalar fields don't collide
         # on a shared default column (x-kuzu.projection overrides it when given).
         return lambda name: Scalar(name, x_kuzu.get("projection") or f"{name}_num")
+    
     if x_kuzu.get("codec") == "union":
         return NativeUnion(x_kuzu["members"], x_kuzu["projection"])
+    
     declared = target.get("type")
     nullable = isinstance(declared, list) and "null" in declared
     base_type = (next(t for t in declared if t != "null")
@@ -82,22 +79,21 @@ def codec_for(schema: dict, defs: dict):
 
 def element_kuzu(array_schema: dict, defs: dict) -> str:
     """The Kùzu type of an array's items (resolved from its $ref)."""
+
     items = resolve(array_schema["items"], defs)
     return codec_for(items, defs)("_").columns[0].kuzu
 
 
 def value_kuzu(object_schema: dict, defs: dict) -> str:
     """The Kùzu type of a map's values (resolved from additionalProperties)."""
+
     value = resolve(object_schema["additionalProperties"], defs)
     return codec_for(value, defs)("_").columns[0].kuzu
 
 
 def node_fields(node: dict, defs: dict) -> list[tuple[str, dict]]:
-    """A node's (name, schema) fields: allOf base fragments first, then own properties.
+    """A node's (name, schema) fields: allOf base fragments first, then own properties."""
 
-    Own properties override a base fragment's field of the same name (keeping the base
-    slot's position), so a re-declared field yields one column, not a duplicate.
-    """
     fields: dict[str, dict] = {}
     for parent in node.get("allOf", ()):
         fields.update(resolve(parent, defs).get("properties", {}))
@@ -107,6 +103,7 @@ def node_fields(node: dict, defs: dict) -> list[tuple[str, dict]]:
 
 def node_ddl(label: str, node: dict, defs: dict) -> str:
     """CREATE NODE TABLE for one node type (canonical columns then projections)."""
+
     columns = []
     for name, schema in node_fields(node, defs):
         codec = codec_for(schema, defs)(name)
@@ -119,6 +116,7 @@ def node_ddl(label: str, node: dict, defs: dict) -> str:
 
 def merge_for(label: str, document: dict) -> str:
     """The idempotent MERGE statement for one node type, generated from its columns."""
+    
     defs = document["$defs"]
     node = defs[label]
     columns = []

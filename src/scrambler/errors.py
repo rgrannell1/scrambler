@@ -1,10 +1,4 @@
-"""The scrambler exception hierarchy.
-
-Every error scrambler raises derives from ScramblerError, so a caller can catch the whole
-family with one `except`. Each also derives from the built-in exception it most resembles
-(ValueError, RuntimeError), so existing `except ValueError`/`except RuntimeError` handlers and
-intuitions keep working — the scrambler types only narrow them.
-"""
+"""The scrambler exception hierarchy."""
 
 
 class ScramblerError(Exception):

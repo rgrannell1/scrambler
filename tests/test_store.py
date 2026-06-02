@@ -56,14 +56,14 @@ def widget_rows(scram: scrambler.Scrambler) -> list:
 def test_define_creates_the_schema_and_reports_its_node_labels():
     """Proves define() runs the DDL so the declared node labels are then queryable."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
-    assert scram.schema.labels == ("Widget",)
+    assert scram.schema.labels() == ("Widget",)
 
 
 def test_define_accepts_an_existing_connection():
     """Proves the constructor takes a live connection, not only a path."""
     connection = ryugraph.Connection(ryugraph.Database(temp_db_path()))
     scram = scrambler.Scrambler(connection).define(FIXTURE)
-    assert scram.schema.labels == ("Widget",)
+    assert scram.schema.labels() == ("Widget",)
 
 
 def test_insert_round_trips_a_dataclass_record_into_the_graph():

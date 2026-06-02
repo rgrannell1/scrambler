@@ -8,26 +8,32 @@ Compile a JSON schema dialect into a Kùzu graph schema, and matching dataclasse
 
 Write one schema document (a JSON Schema constrained to the *dialect*), then drive it through
 the `Scrambler` facade — it holds a connection and the defined schema so you never thread a
-`(label, document)` pair around by hand.
+`(label, document)` pair around by hand. Operations live in three namespaces on the instance:
+`schema` (derived artifacts), `write` (merges), and `read` (decoded reads).
 
 ```python
 import scrambler
 
-# A connection / database / path to open.
-scram = scrambler.Scrambler("graph.db")
+scram = scrambler.Scrambler("graph.db").define(my_schema)
 
-# Validate the document against the dialect, create its tables
-scram.define(my_schema, clear=False)
+# A runtime dataclass for a Cypher node.
+Widget = scram.schema.dataclass("Widget")
 
-# A runtime dataclass for a node type
-Widget = scram.dataclass("Widget")
+# +++ Merge +++
+scram.write.insert(Widget(id="w1", label="hello"))
+scram.write.insert_many("Widget", [
+    {"id": "w2", "label": "world"},
+    {"id": "w3", "label": "again"},
+])
 
-# Merge a record into the graph (its dataclass name is the node label).
-scram.insert(Widget(id="w1", label="hello"))
+# +++ Read +++
+scram.read.get("Widget", "w1")
+scram.read.all("Widget")                    
+scram.read.all("Widget", where={"label": "hello"}) 
 
-# Read it back, decoded into the same dataclass.
-scram.get("Widget", "w1")   # -> Widget(id="w1", label="hello")
-scram.all("Widget")         # -> [Widget(id="w1", label="hello")]
+# Writes can be grouped into an atomic transaction.
+with scram.transaction():
+    scram.write.insert(Widget(id="w4", label="batched"))
 ```
 
 ## Develop
