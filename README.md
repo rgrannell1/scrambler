@@ -13,22 +13,18 @@ the `Scrambler` facade — it holds a connection and the defined schema so you n
 ```python
 import scrambler
 
-# A connection, a Database, or a path to open.
+# A connection / database / path to open.
 scram = scrambler.Scrambler("graph.db")
 
-# Validate the document against the dialect, create its node/rel tables, adopt it.
-# clear=True also empties every node table for a fresh start.
+# Validate the document against the dialect, create its tables
 scram.define(my_schema, clear=False)
 
-# A runtime dataclass for a node type (tidy error if it isn't a node in the schema).
+# A runtime dataclass for a node type
 Widget = scram.dataclass("Widget")
 
-# MERGE a record into the graph (its dataclass name is the node label).
+# Merge a record into the graph (its dataclass name is the node label).
 scram.insert(Widget(id="w1", label="hello"))
 ```
-
-The compile-layer functions (`schema_ddls`, `dataclass_for`, `merge_for`, `encode_row`, …)
-remain exported for direct use; `Scrambler` is the thin stateful wrapper over them.
 
 ## Develop
 
