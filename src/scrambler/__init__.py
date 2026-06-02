@@ -14,6 +14,8 @@ from scrambler.compile import (
     check_schema as check_schema,
     codec_for as codec_for,
     dataclass_for as dataclass_for,
+    decode_into as decode_into,
+    decode_row as decode_row,
     dialect as dialect,
     dialect_path as dialect_path,
     encode_mapping as encode_mapping,

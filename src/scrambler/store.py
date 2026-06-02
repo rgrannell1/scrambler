@@ -8,6 +8,7 @@ through every call. The compilers stay pure; this is the only module that touche
 connection or validates a document, and it raises clear errors when a label is not a node.
 """
 
+from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from typing import Any, Self
 
@@ -18,7 +19,7 @@ from scrambler.compile import (
     check_schema,
     dataclass_for,
     dialect,
-    encode_row,
+    encode_mapping,
     merge_for,
     node_labels,
     schema_ddls,
@@ -95,17 +96,28 @@ class Scrambler:
         document = self.node_or_raise(label)
         return dataclass_for(label, document)
 
-    def insert(self, record: Any) -> None:
-        """MERGE one node record (its dataclass name is the node label) into the graph.
+    def insert_mapping(self, label: str, values: dict) -> None:
+        """MERGE one node from a field->value mapping — the generic write kernel.
 
-        Every codec, including a native MAP column, supplies its own Cypher binding, so a
-        record with any admitted field type writes through this one path.
+        Use this when the primary key is computed externally, or the record's class name
+        differs from the node label. `values` must cover every field of the node type. Every
+        codec, including a native MAP column, supplies its own Cypher binding, so a node with
+        any admitted field type writes through this one path.
         """
-        label = type(record).__name__
         document = self.node_or_raise(label)
         statement = merge_for(label, document)
-        parameters = encode_row(label, document, record)
+        parameters = encode_mapping(label, document, values)
         self.connection.execute(statement, parameters)
+
+    def insert(self, record: Any) -> None:
+        """MERGE one node record — the convenience wrapper over insert_mapping.
+
+        The record's dataclass name is the node label and its attributes are the field values;
+        reach for insert_mapping(label, values) when the id is computed externally or the
+        record class name differs from the label.
+        """
+        values = {field.name: getattr(record, field.name) for field in dataclass_fields(record)}
+        self.insert_mapping(type(record).__name__, values)
 
     def clear(self) -> None:
         """Empty every node table; DETACH DELETE removes the nodes and their relationships."""

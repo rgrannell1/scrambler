@@ -74,6 +74,20 @@ def test_insert_round_trips_a_dataclass_record_into_the_graph():
     assert widget_rows(scram) == [["w1", "hello"]]
 
 
+def test_insert_mapping_writes_a_node_from_an_explicit_label_and_values():
+    """Proves insert_mapping writes a node from a (label, values) pair — no dataclass needed."""
+    scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
+    scram.insert_mapping("Widget", {"id": "w1", "label": "hello"})
+    assert widget_rows(scram) == [["w1", "hello"]]
+
+
+def test_insert_mapping_rejects_an_unknown_label():
+    """Proves insert_mapping fails fast when the label isn't a node type in the schema."""
+    scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
+    with pytest.raises(ValueError, match=r"not a node type.*Widget"):
+        scram.insert_mapping("Gadget", {"id": "g1"})
+
+
 def test_dataclass_for_unknown_label_raises_with_available_labels():
     """Proves an unknown label fails fast with a message naming the real node labels."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)

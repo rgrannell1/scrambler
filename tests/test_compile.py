@@ -71,6 +71,19 @@ def test_node_record_round_trips_through_storage():
     assert row == {"id": "w1", "label": "hello"}
 
 
+def test_decode_row_inverts_encode_row():
+    """Proves decode_row recovers a record's field values from the row encode_row produced."""
+    widget = scrambler.dataclass_for("Widget", FIXTURE)
+    row = scrambler.encode_row("Widget", FIXTURE, widget(id="w1", label="hello"))
+    assert scrambler.decode_row("Widget", FIXTURE, row) == {"id": "w1", "label": "hello"}
+
+
+def test_decode_into_rebuilds_the_dataclass_instance():
+    """Proves decode_into turns a stored row back into a dataclass_for instance."""
+    record = scrambler.decode_into("Widget", FIXTURE, {"id": "w1", "label": "hello"})
+    assert (record.id, record.label) == ("w1", "hello")
+
+
 # A node with two scalar-codec fields — each must get its own projection column.
 SCALARS = {
     "$schema": "https://json-schema.org/draft/2023-02/schema",

@@ -223,3 +223,27 @@ def encode_row(label: str, document: dict, record: Any) -> dict:
         row.update(codec.encode(value))
         row.update(codec.project(value))
     return row
+
+
+def decode_row(label: str, document: dict, row: dict) -> dict:
+    """Stored row (column name -> value) -> field name -> python value: the mirror of encode_row.
+
+    Reads only each codec's canonical columns; derived projection columns are write-only and
+    never consulted, so extra keys in `row` (e.g. a projection) are ignored.
+    """
+    defs = document["$defs"]
+    values: dict = {}
+    for name, schema in node_fields(defs[label], defs):
+        codec = codec_for(schema, defs)(name)
+        cells = {column.name: row[column.name] for column in codec.columns}
+        values[name] = codec.decode(cells)
+    return values
+
+
+def decode_into(label: str, document: dict, row: dict) -> Any:
+    """Stored row -> an instance of dataclass_for(label): the read twin of dataclass_for.
+
+    A fresh class is compiled per call (as dataclass_for does), so instances from separate
+    calls compare unequal even with equal fields — compare by field value, not by ==.
+    """
+    return dataclass_for(label, document)(**decode_row(label, document, row))
