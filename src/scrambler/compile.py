@@ -260,3 +260,46 @@ def column_names(label: str, document: dict) -> list[str]:
     for name, schema in node_fields(defs[label], defs):
         names.extend(column.name for column in codec_for(schema, defs)(name).columns)
     return names
+
+
+def equality_term(key: str, value: Any, field_schema: dict, defs: dict) -> tuple[str, dict]:
+    """One filter term — `n.col = $col` (or `n.col IS NULL`) — and its parameter, for a where key.
+
+    The value is encoded through the field's codec, so it compares against the column's *stored*
+    representation. Raises if the field has no single `=` form: more than one column, or a column
+    built by a Cypher expression rather than a plain bound parameter (a native MAP).
+    """
+    codec = codec_for(field_schema, defs)(key)
+    columns = codec.columns
+    if len(columns) != 1 or columns[0].bind is not None:
+        raise ValueError(
+            f"field {key!r} is not equality-filterable (no single `=` form); filter it in Cypher.")
+    name = columns[0].name
+    encoded = codec.encode(value)[name]
+    if encoded is None:
+        return f"n.{name} IS NULL", {}
+    return f"n.{name} = ${name}", {name: encoded}
+
+
+def equality_filter(label: str, document: dict, where: dict) -> tuple[str, dict]:
+    """A `WHERE n.col = $col AND …` clause plus its encoded parameters for an equality filter.
+
+    Each key is a field of the node type; its value is encoded through that field's codec so the
+    comparison matches the stored representation (a JSON-encoded or scalar column compares against
+    its encoded string, not the raw python value). Empty `where` yields ('', {}).
+    """
+    if not where:
+        return "", {}
+    defs = document["$defs"]
+    fields = dict(node_fields(defs[label], defs))
+    unknown = [key for key in where if key not in fields]
+    if unknown:
+        available = ", ".join(fields) or "(none)"
+        raise ValueError(
+            f"{label} has no field(s) {', '.join(unknown)} to filter on; available: {available}.")
+    terms, params = [], {}
+    for key, value in where.items():
+        term, term_params = equality_term(key, value, fields[key], defs)
+        terms.append(term)
+        params.update(term_params)
+    return " WHERE " + " AND ".join(terms), params

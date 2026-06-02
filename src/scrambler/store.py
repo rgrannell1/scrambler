@@ -22,6 +22,7 @@ from scrambler.compile import (
     decode_row,
     dialect,
     encode_mapping,
+    equality_filter,
     merge_for,
     node_labels,
     schema_ddls,
@@ -142,13 +143,20 @@ class Scrambler:
         row = dict(zip(columns, result.get_next(), strict=True))
         return self.dataclass(label)(**decode_row(label, document, row))
 
-    def all(self, label: str) -> list[Any]:
-        """Every node of a type, each decoded into its dataclass."""
+    def all(self, label: str, where: dict | None = None) -> list[Any]:
+        """Every node of a type, each decoded into its dataclass.
+
+        `where` is an optional equality filter (field -> required value, ANDed); its keys must
+        be fields of the node type and its values are encoded through their codecs to match the
+        stored form. Pass it to scope the read — a bare all() spans every stored node of the type.
+        """
         document = self.node_or_raise(label)
-        cls = self.dataclass(label)
         columns = column_names(label, document)
+        clause, params = equality_filter(label, document, where or {})
         returns = ", ".join(f"n.{name}" for name in columns)
-        rows = self.connection.execute(f"MATCH (n:{label}) RETURN {returns}").get_all()
+        rows = self.connection.execute(
+            f"MATCH (n:{label}){clause} RETURN {returns}", params).get_all()
+        cls = self.dataclass(label)
         return [cls(**decode_row(label, document, dict(zip(columns, row, strict=True))))
                 for row in rows]
 

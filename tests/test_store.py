@@ -111,6 +111,63 @@ def test_all_returns_every_node_decoded():
     assert set(scram.all("Widget")) == {widget(id="w1", label="a"), widget(id="w2", label="b")}
 
 
+def test_all_with_where_filters_by_equality():
+    """Proves all(label, where=...) returns only nodes whose columns equal the given values."""
+    scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
+    widget = scram.dataclass("Widget")
+    scram.insert(widget(id="w1", label="keep"))
+    scram.insert(widget(id="w2", label="drop"))
+    assert scram.all("Widget", {"label": "keep"}) == [widget(id="w1", label="keep")]
+
+
+def test_all_with_unknown_filter_field_raises():
+    """Proves a where key that isn't a field fails fast (no silent match, no Cypher injection)."""
+    scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
+    with pytest.raises(ValueError, match=r"no field.*missing.*available"):
+        scram.all("Widget", {"missing": "x"})
+
+
+def test_all_where_filters_a_json_encoded_column_by_value():
+    """Proves where on a JSON-encoded column matches the stored encoding, not the raw value."""
+    encoded = {
+        "$schema": "https://json-schema.org/draft/2023-02/schema",
+        "$id": "https://scrambler/store-encoded",
+        "description": "A node with a JSON-encoded list column.",
+        "$defs": {
+            "nodeId": {"type": "string", "description": "A node id."},
+            "label": {"type": "string", "description": "A display label."},
+            "tags": {
+                "type": "array",
+                "items": {"$ref": "#/$defs/label"},
+                "description": "A JSON-encoded list of tags.",
+                "x-kuzu": {"encode": "json"},
+            },
+            "Doc": {
+                "type": "object",
+                "additionalProperties": False,
+                "description": "A doc with a json list.",
+                "properties": {
+                    "id": {"$ref": "#/$defs/nodeId"},
+                    "tags": {"$ref": "#/$defs/tags"},
+                },
+                "x-kuzu": {"table": "node", "primaryKey": "id"},
+            },
+        },
+    }
+    scram = scrambler.Scrambler(temp_db_path()).define(encoded)
+    doc = scram.dataclass("Doc")
+    scram.insert(doc(id="d1", tags=["a", "b"]))
+    scram.insert(doc(id="d2", tags=["c"]))
+    assert scram.all("Doc", {"tags": ["a", "b"]}) == [doc(id="d1", tags=["a", "b"])]
+
+
+def test_all_where_rejects_a_non_equality_filterable_column():
+    """Proves filtering on a native MAP column fails fast rather than crashing inside Kùzu."""
+    scram = scrambler.Scrambler(temp_db_path()).define(MAPS)
+    with pytest.raises(ValueError, match=r"not equality-filterable"):
+        scram.all("Tally", {"counts": {"a": 1}})
+
+
 def test_records_share_the_cached_dataclass():
     """Proves dataclass/get share one cached type, so records compare equal and isinstance works."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
