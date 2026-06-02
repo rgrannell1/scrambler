@@ -247,3 +247,16 @@ def decode_into(label: str, document: dict, row: dict) -> Any:
     calls compare unequal even with equal fields — compare by field value, not by ==.
     """
     return dataclass_for(label, document)(**decode_row(label, document, row))
+
+
+def column_names(label: str, document: dict) -> list[str]:
+    """The canonical (bijection) column names of a node type, in field order.
+
+    A reader RETURNs exactly these columns and feeds the row to decode_row/decode_into;
+    derived projection columns are write-only and excluded.
+    """
+    defs = document["$defs"]
+    names: list[str] = []
+    for name, schema in node_fields(defs[label], defs):
+        names.extend(column.name for column in codec_for(schema, defs)(name).columns)
+    return names

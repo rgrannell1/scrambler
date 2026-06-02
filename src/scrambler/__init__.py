@@ -13,6 +13,7 @@ functions live in `scrambler.compile` and stay importable from here for the drea
 from scrambler.compile import (
     check_schema as check_schema,
     codec_for as codec_for,
+    column_names as column_names,
     dataclass_for as dataclass_for,
     decode_into as decode_into,
     decode_row as decode_row,

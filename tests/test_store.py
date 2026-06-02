@@ -88,6 +88,38 @@ def test_insert_mapping_rejects_an_unknown_label():
         scram.insert_mapping("Gadget", {"id": "g1"})
 
 
+def test_insert_then_get_round_trips_a_record_through_the_facade():
+    """Proves a record written with insert reads back equal via get — no raw Cypher needed."""
+    scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
+    widget = scram.dataclass("Widget")
+    scram.insert(widget(id="w1", label="hello"))
+    assert scram.get("Widget", "w1") == widget(id="w1", label="hello")
+
+
+def test_get_returns_none_for_a_missing_node():
+    """Proves get yields None when no node has the given primary-key value."""
+    scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
+    assert scram.get("Widget", "nope") is None
+
+
+def test_all_returns_every_node_decoded():
+    """Proves all returns one decoded record per stored node of the type."""
+    scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
+    widget = scram.dataclass("Widget")
+    scram.insert(widget(id="w1", label="a"))
+    scram.insert(widget(id="w2", label="b"))
+    assert set(scram.all("Widget")) == {widget(id="w1", label="a"), widget(id="w2", label="b")}
+
+
+def test_records_share_the_cached_dataclass():
+    """Proves dataclass/get share one cached type, so records compare equal and isinstance works."""
+    scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)
+    widget = scram.dataclass("Widget")
+    scram.insert(widget(id="w1", label="hello"))
+    assert isinstance(scram.get("Widget", "w1"), widget)
+    assert scram.dataclass("Widget") is widget
+
+
 def test_dataclass_for_unknown_label_raises_with_available_labels():
     """Proves an unknown label fails fast with a message naming the real node labels."""
     scram = scrambler.Scrambler(temp_db_path()).define(FIXTURE)

@@ -17,7 +17,9 @@ import ryugraph
 
 from scrambler.compile import (
     check_schema,
+    column_names,
     dataclass_for,
+    decode_row,
     dialect,
     encode_mapping,
     merge_for,
@@ -57,6 +59,7 @@ class Scrambler:
     def __init__(self, source: ConnectionSource) -> None:
         self.connection = connection_from(source)
         self.document: SchemaDocument | None = None
+        self.dataclasses: dict[str, type] = {}
 
     def define(self, schema: SchemaDocument, *, clear: bool = False) -> Self:
         """Validate a document, create its node and relationship tables, and adopt it.
@@ -92,9 +95,15 @@ class Scrambler:
         return document
 
     def dataclass(self, label: str) -> type:
-        """The runtime dataclass for a node type; raises if `label` isn't a node in the schema."""
+        """The runtime dataclass for a node type; raises if `label` isn't a node in the schema.
+
+        Cached per label, so every record of a type — built here or read back by get/all —
+        shares one class, and instances compare equal and pass isinstance against it.
+        """
         document = self.node_or_raise(label)
-        return dataclass_for(label, document)
+        if label not in self.dataclasses:
+            self.dataclasses[label] = dataclass_for(label, document)
+        return self.dataclasses[label]
 
     def insert_mapping(self, label: str, values: dict) -> None:
         """MERGE one node from a field->value mapping — the generic write kernel.
@@ -118,6 +127,30 @@ class Scrambler:
         """
         values = {field.name: getattr(record, field.name) for field in dataclass_fields(record)}
         self.insert_mapping(type(record).__name__, values)
+
+    def get(self, label: str, key: Any) -> Any | None:
+        """Fetch one node by primary-key value, decoded into its dataclass — None if absent."""
+        document = self.node_or_raise(label)
+        primary_key = document["$defs"][label]["x-kuzu"]["primaryKey"]
+        columns = column_names(label, document)
+        returns = ", ".join(f"n.{name}" for name in columns)
+        result = self.connection.execute(
+            f"MATCH (n:{label} {{{primary_key}: $key}}) RETURN {returns}", {"key": key}
+        )
+        if not result.has_next():
+            return None
+        row = dict(zip(columns, result.get_next(), strict=True))
+        return self.dataclass(label)(**decode_row(label, document, row))
+
+    def all(self, label: str) -> list[Any]:
+        """Every node of a type, each decoded into its dataclass."""
+        document = self.node_or_raise(label)
+        cls = self.dataclass(label)
+        columns = column_names(label, document)
+        returns = ", ".join(f"n.{name}" for name in columns)
+        rows = self.connection.execute(f"MATCH (n:{label}) RETURN {returns}").get_all()
+        return [cls(**decode_row(label, document, dict(zip(columns, row, strict=True))))
+                for row in rows]
 
     def clear(self) -> None:
         """Empty every node table; DETACH DELETE removes the nodes and their relationships."""

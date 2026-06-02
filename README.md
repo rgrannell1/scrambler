@@ -24,6 +24,10 @@ Widget = scram.dataclass("Widget")
 
 # Merge a record into the graph (its dataclass name is the node label).
 scram.insert(Widget(id="w1", label="hello"))
+
+# Read it back, decoded into the same dataclass.
+scram.get("Widget", "w1")   # -> Widget(id="w1", label="hello")
+scram.all("Widget")         # -> [Widget(id="w1", label="hello")]
 ```
 
 ## Develop
