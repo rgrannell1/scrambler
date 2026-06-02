@@ -38,8 +38,8 @@ from scrambler.errors import (
     NotDefinedError,
     QueryError,
     RecordError,
-    ScramblerError,
     SchemaError,
+    ScramblerError,
     UnknownLabelError,
 )
 from scrambler.store import Scrambler
@@ -48,8 +48,8 @@ __all__ = [
     "NotDefinedError",
     "QueryError",
     "RecordError",
+    "SchemaError",
     "Scrambler",
     "ScramblerError",
-    "SchemaError",
     "UnknownLabelError",
 ]

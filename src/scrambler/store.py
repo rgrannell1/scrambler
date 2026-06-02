@@ -233,7 +233,8 @@ class Scrambler:
     """
 
     def __init__(self, source: ConnectionSource, *, validate: bool = False) -> None:
-        self.connection, self.database, self.owns_connection, self.owns_database = open_source(source)
+        (self.connection, self.database,
+         self.owns_connection, self.owns_database) = open_source(source)
         self.validating = validate
         self.document: SchemaDocument | None = None
         self.dataclasses: dict[str, type] = {}
