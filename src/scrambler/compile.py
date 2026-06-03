@@ -55,6 +55,7 @@ def resolve(schema: dict, defs: dict) -> dict:
 
 def codec_for(schema: dict, defs: dict) -> CodecFactory:
     """Map a property schema (possibly a $ref) to a codec factory (name -> Codec)."""
+
     target = resolve(schema, defs)
     x_kuzu = target.get("x-kuzu", {})
     codec = x_kuzu.get("codec")
@@ -78,6 +79,7 @@ def codec_for(schema: dict, defs: dict) -> CodecFactory:
                 if codec == "map" else Json)
     else:
         kind = SCALAR_CODECS[base_type]
+
     return Opt(kind) if isinstance(declared, list) and "null" in declared else kind
 
 
@@ -107,6 +109,7 @@ def node_fields(node: dict, defs: dict) -> list[tuple[str, dict]]:
 
 def bound_codecs(node: dict, defs: dict) -> Iterator[tuple[str, Codec]]:
     """Each field's (name, bound codec) — node_fields with codec_for applied."""
+
     for name, schema in node_fields(node, defs):
         yield name, codec_for(schema, defs)(name)
 
@@ -124,15 +127,18 @@ def node_ddl(label: str, node: dict, defs: dict) -> str:
 
 def merge_for(label: str, document: dict) -> str:
     """The idempotent MERGE statement for one node type, generated from its columns."""
-    
+
     defs = document["$defs"]
     node = defs[label]
     columns = []
+
     for _name, codec in bound_codecs(node, defs):
         columns.extend((*codec.columns, *codec.projections))
+
     primary_key = node["x-kuzu"]["primaryKey"]
     assignments = [(column.name, column.binding())
                    for column in columns if column.name != primary_key]
+
     return query.merge_node(label, primary_key, assignments)
 
 
@@ -142,13 +148,16 @@ def merge_many_for(label: str, document: dict) -> str:
     Each `$param` in the single-row statement becomes `row.param`, so the same encoded mapping
     that feeds merge_for (columns and projections, native-MAP CASTs and all) feeds each row.
     """
+
     return query.unwind_rows(merge_for(label, document))
 
 
 def encode_mapping(label: str, document: dict, values: dict) -> dict:
     """Encode a full field->value mapping into a parameters dict (columns + projections)."""
+
     defs = document["$defs"]
     params: dict = {}
+
     for name, codec in bound_codecs(defs[label], defs):
         params.update(codec.encode(values[name]))
         params.update(codec.project(values[name]))
@@ -157,11 +166,13 @@ def encode_mapping(label: str, document: dict, values: dict) -> dict:
 
 def identity_fields(label: str, document: dict) -> list[str]:
     """The fields whose values form a node's id (x-kuzu.identity)."""
+
     return document["$defs"][label]["x-kuzu"]["identity"]
 
 
 def rel_ddl(label: str, rel: dict) -> str:
     """CREATE REL TABLE for one relationship type (its FROM/TO pairs)."""
+
     return query.create_rel_table(label, rel["x-kuzu"]["pairs"])
 
 
@@ -170,14 +181,8 @@ def is_kind(definition: dict, kind: str) -> bool:
 
 
 def check_schema(document: dict) -> None:
-    """Reject a document the dialect admits structurally but that can't round-trip faithfully.
+    """Reject a document the dialect admits structurally but that can't round-trip faithfully."""
 
-    The dialect (a JSON Schema) checks shape; this checks lowering semantics. Currently it
-    rejects a native UNION with a STRING member, since a string that looks like another
-    member's literal coerces into that member and loses its type on read — use the JSON scalar
-    codec (x-kuzu.codec='scalar') for a union that includes strings. Raises ValueError on the
-    first violation; returns None when the document is sound.
-    """
     for label, definition in document["$defs"].items():
         x_kuzu = definition.get("x-kuzu", {})
         if x_kuzu.get("codec") == "union" and union_has_string_member(x_kuzu["members"]):
@@ -191,36 +196,44 @@ def check_schema(document: dict) -> None:
 def record_schema(label: str, document: dict) -> dict:
     """The JSON Schema a node type's record must satisfy: its $defs entry plus the document's
     $defs, so the property `$ref`s (and their enum/type/required constraints) resolve."""
+
     defs = document["$defs"]
     return {**defs[label], "$defs": defs}
 
 
 def schema_ddls(document: dict) -> list[str]:
     """Every node table then every relationship table, in document order."""
+
     defs = document["$defs"]
     nodes = [node_ddl(label, d, defs) for label, d in defs.items() if is_kind(d, "node")]
     rels = [rel_ddl(label, d) for label, d in defs.items() if is_kind(d, "rel")]
+
     return nodes + rels
 
 
 def node_labels(document: dict) -> tuple[str, ...]:
     """The node-table labels, in document order (the source for clear_package)."""
+
     return tuple(label for label, d in document["$defs"].items() if is_kind(d, "node"))
 
 
 def _field_spec(default: Any):
     """A dataclass field spec for a default; mutable list/dict defaults need a factory."""
+
     if isinstance(default, (list, dict)):
         # Deep-copy so instances never share the same mutable default object.
         return dc_field(default_factory=lambda value=default: deepcopy(value))
+
     return dc_field(default=default)
 
 
 def dataclass_for(label: str, document: dict) -> type:
     """Compile the runtime stored-record dataclass for one node type."""
+
     defs = document["$defs"]
     node = defs[label]
     plain, defaulted = [], []
+
     for name, schema in node_fields(node, defs):
         annotation = codec_for(schema, defs)(name).py_type
         default = schema.get("default", _MISSING)
@@ -228,19 +241,24 @@ def dataclass_for(label: str, document: dict) -> type:
             plain.append((name, annotation))
         else:
             defaulted.append((name, annotation, _field_spec(default)))
+
     cls = make_dataclass(label, [*plain, *defaulted], frozen=True)
     cls.__doc__ = node.get("description", "")
+
     return cls
 
 
 def encode_row(label: str, document: dict, record: Any) -> dict:
     """Stored-record -> parameters dict (canonical columns + projections)."""
+
     defs = document["$defs"]
     row: dict = {}
+
     for name, codec in bound_codecs(defs[label], defs):
         value = getattr(record, name)
         row.update(codec.encode(value))
         row.update(codec.project(value))
+
     return row
 
 
@@ -250,11 +268,14 @@ def decode_row(label: str, document: dict, row: dict) -> dict:
     Reads only each codec's canonical columns; derived projection columns are write-only and
     never consulted, so extra keys in `row` (e.g. a projection) are ignored.
     """
+
     defs = document["$defs"]
     values: dict = {}
+
     for name, codec in bound_codecs(defs[label], defs):
         cells = {column.name: row[column.name] for column in codec.columns}
         values[name] = codec.decode(cells)
+
     return values
 
 
@@ -264,6 +285,7 @@ def decode_into(label: str, document: dict, row: dict) -> Any:
     A fresh class is compiled per call (as dataclass_for does), so instances from separate
     calls compare unequal even with equal fields — compare by field value, not by ==.
     """
+
     return dataclass_for(label, document)(**decode_row(label, document, row))
 
 
@@ -273,10 +295,13 @@ def column_names(label: str, document: dict) -> list[str]:
     A reader RETURNs exactly these columns and feeds the row to decode_row/decode_into;
     derived projection columns are write-only and excluded.
     """
+
     defs = document["$defs"]
     names: list[str] = []
+
     for _name, codec in bound_codecs(defs[label], defs):
         names.extend(column.name for column in codec.columns)
+
     return names
 
 
@@ -287,15 +312,20 @@ def equality_term(key: str, value: Any, field_schema: dict, defs: dict) -> tuple
     representation. Raises if the field has no single `=` form: more than one column, or a column
     built by a Cypher expression rather than a plain bound parameter (a native MAP).
     """
+
     codec = codec_for(field_schema, defs)(key)
     columns = codec.columns
+
     if len(columns) != 1 or columns[0].bind is not None:
         raise RecordError(
             f"field {key!r} is not equality-filterable (no single `=` form); filter it in Cypher.")
+
     name = columns[0].name
     encoded = codec.encode(value)[name]
+
     if encoded is None:
         return query.is_null(name), {}
+
     return query.equality(name), {name: encoded}
 
 
@@ -307,18 +337,24 @@ def equality_filter(label: str, document: dict, where: dict) -> tuple[list[str],
     its encoded string, not the raw python value). Empty `where` yields ([], {}). The caller
     renders the terms into a WHERE clause (query.match_all / query.where_clause).
     """
+
     if not where:
         return [], {}
+
     defs = document["$defs"]
     fields = dict(node_fields(defs[label], defs))
     unknown = [key for key in where if key not in fields]
+
     if unknown:
         available = ", ".join(fields) or "(none)"
         raise RecordError(
             f"{label} has no field(s) {', '.join(unknown)} to filter on; available: {available}.")
+
     terms, params = [], {}
+
     for key, value in where.items():
         term, term_params = equality_term(key, value, fields[key], defs)
         terms.append(term)
         params.update(term_params)
+
     return terms, params

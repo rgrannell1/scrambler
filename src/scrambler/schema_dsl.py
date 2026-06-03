@@ -19,7 +19,7 @@ from scrambler.protocols import CodecFactory, Decode, Encode, Project
 _MISSING: Any = object()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Codec:
     """A python value <-> storage columns, with a round-trip guarantee.
 
@@ -67,7 +67,7 @@ def Opt(inner: CodecFactory) -> CodecFactory:
             projections=codec.projections,
             project=codec.project,
         )
-    
+
     return make
 
 
@@ -97,7 +97,7 @@ def Json(name: str) -> Codec:
 def NativeMap(key_kuzu: str, value_kuzu: str) -> CodecFactory:
     """A native Kùzu MAP. A dict binds as a STRUCT, not a MAP, so the column is written with
     `map($name_keys, $name_values)`"""
-    
+
     def make(name: str) -> Codec:
         keys, values = f"{name}_keys", f"{name}_values"
         # CAST the parameter lists to their element types so an empty map still resolves a
@@ -147,7 +147,7 @@ def union_has_string_member(members: dict) -> bool:
 
 def NativeUnion(members: dict, projection: str) -> CodecFactory:
     """A native Kùzu UNION over named variants; binds/returns the python value directly."""
-    
+
     union_ddl = ", ".join(f"{tag} {kuzu}" for tag, kuzu in members.items())
 
     def make(name: str) -> Codec:
@@ -157,4 +157,5 @@ def NativeUnion(members: dict, projection: str) -> CodecFactory:
             projections=(Column(projection, "DOUBLE"),),
             project=project_numeric(projection),
         )
+
     return make

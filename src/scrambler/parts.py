@@ -2,6 +2,7 @@
 numeric-projection helpers."""
 
 import json
+import operator
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -10,7 +11,7 @@ from scrambler.errors import RecordError
 from scrambler.protocols import Decode, Encode, Project, Value
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Column:
     """A physical Kùzu column, plus how its value is supplied in a write."""
 
@@ -36,8 +37,8 @@ def bind_value(name: str, prepare: Callable[[Value], Any] = lambda value: value)
 
 def read_column(name: str) -> Decode:
     """Decode straight: read the value back from its column."""
-    
-    return lambda row: row[name]
+
+    return operator.itemgetter(name)
 
 
 def json_encode(name: str, prepare: Callable[[Value], Any] = lambda value: value) -> Encode:
