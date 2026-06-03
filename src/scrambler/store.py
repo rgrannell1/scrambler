@@ -9,6 +9,7 @@ from typing import Any, Self
 import jsonschema
 import ryugraph
 
+from scrambler import query
 from scrambler.compile import (
     check_schema,
     column_names,
@@ -78,12 +79,10 @@ class _Reader:
         document = store.node_or_raise(label)
         primary_key = document["$defs"][label]["x-kuzu"]["primaryKey"]
         columns = column_names(label, document)
-        returns = ", ".join(f"n.{name}" for name in columns)
-        
-        result = run(store.connection,
-                     f"MATCH (n:{label} {{{primary_key}: $key}}) RETURN {returns}",
-                     {"key": key}, f"get {label}")
-        
+
+        statement = query.match_by_key(label, primary_key, columns)
+        result = run(store.connection, statement, {"key": key}, f"get {label}")
+
         if not result.has_next():
             return None
         
@@ -97,12 +96,10 @@ class _Reader:
         store = self._store
         document = store.node_or_raise(label)
         columns = column_names(label, document)
-        clause, params = equality_filter(label, document, where or {})
-        
-        returns = ", ".join(f"n.{name}" for name in columns)
-        
-        rows = run(store.connection, f"MATCH (n:{label}){clause} RETURN {returns}",
-                   params, f"read {label}").get_all()
+        terms, params = equality_filter(label, document, where or {})
+
+        statement = query.match_all(label, columns, terms)
+        rows = run(store.connection, statement, params, f"read {label}").get_all()
         cls = store.schema.dataclass(label)
         
         return [cls(**decode_row(label, document, dict(zip(columns, row, strict=True))))
@@ -165,7 +162,7 @@ class _Writer:
         document = store.defined_document()
         
         for label in node_labels(document):
-            run(store.connection, f"MATCH (n:{label}) DETACH DELETE n", {}, f"clear {label}")
+            run(store.connection, query.detach_delete(label), {}, f"clear {label}")
 
 
 class _Schema:
@@ -259,15 +256,15 @@ class Scrambler:
     def transaction(self) -> Iterator[Self]:
         """Run a block atomically: COMMIT on clean exit, ROLLBACK if it raises."""
 
-        run(self.connection, "BEGIN TRANSACTION", {}, "begin transaction")
-        
+        run(self.connection, query.BEGIN_TRANSACTION, {}, "begin transaction")
+
         try:
             yield self
         except BaseException:
-            self.connection.execute("ROLLBACK")
+            self.connection.execute(query.ROLLBACK)
             raise
-        
-        run(self.connection, "COMMIT", {}, "commit")
+
+        run(self.connection, query.COMMIT, {}, "commit")
 
     def close(self) -> None:
         """Close the connection (and database) scrambler opened; a no-op for borrowed handle."""

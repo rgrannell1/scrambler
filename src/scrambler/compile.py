@@ -1,13 +1,13 @@
 """Compilers: a Layer-2 JSON Schema document -> Kùzu DDL and runtime dataclasses."""
 
 import json
-import re
 from collections.abc import Iterator
 from copy import deepcopy
 from dataclasses import field as dc_field, make_dataclass
 from pathlib import Path
 from typing import Any
 
+from scrambler import query
 from scrambler.errors import RecordError, SchemaError
 from scrambler.protocols import CodecFactory
 from scrambler.schema_dsl import (
@@ -116,11 +116,10 @@ def node_ddl(label: str, node: dict, defs: dict) -> str:
 
     columns = []
     for _name, codec in bound_codecs(node, defs):
-        columns.extend(f"{column.name} {column.kuzu}"
+        columns.extend((column.name, column.kuzu)
                        for column in (*codec.columns, *codec.projections))
     primary_key = node["x-kuzu"]["primaryKey"]
-    return (f"CREATE NODE TABLE IF NOT EXISTS {label}"
-            f"({', '.join(columns)}, PRIMARY KEY({primary_key}))")
+    return query.create_node_table(label, columns, primary_key)
 
 
 def merge_for(label: str, document: dict) -> str:
@@ -132,11 +131,9 @@ def merge_for(label: str, document: dict) -> str:
     for _name, codec in bound_codecs(node, defs):
         columns.extend((*codec.columns, *codec.projections))
     primary_key = node["x-kuzu"]["primaryKey"]
-    sets = ", ".join(f"n.{column.name} = {column.binding()}"
-                     for column in columns if column.name != primary_key)
-    match = f"MERGE (n:{label} {{{primary_key}: ${primary_key}}})"
-    # A node whose only column is its primary key has nothing to SET — emit a bare MERGE.
-    return f"{match} SET {sets}" if sets else match
+    assignments = [(column.name, column.binding())
+                   for column in columns if column.name != primary_key]
+    return query.merge_node(label, primary_key, assignments)
 
 
 def merge_many_for(label: str, document: dict) -> str:
@@ -145,8 +142,7 @@ def merge_many_for(label: str, document: dict) -> str:
     Each `$param` in the single-row statement becomes `row.param`, so the same encoded mapping
     that feeds merge_for (columns and projections, native-MAP CASTs and all) feeds each row.
     """
-    body = re.sub(r"\$(\w+)", r"row.\1", merge_for(label, document))
-    return f"UNWIND $rows AS row {body}"
+    return query.unwind_rows(merge_for(label, document))
 
 
 def encode_mapping(label: str, document: dict, values: dict) -> dict:
@@ -166,8 +162,7 @@ def identity_fields(label: str, document: dict) -> list[str]:
 
 def rel_ddl(label: str, rel: dict) -> str:
     """CREATE REL TABLE for one relationship type (its FROM/TO pairs)."""
-    pairs = ", ".join(f"FROM {source} TO {target}" for source, target in rel["x-kuzu"]["pairs"])
-    return f"CREATE REL TABLE IF NOT EXISTS {label}({pairs})"
+    return query.create_rel_table(label, rel["x-kuzu"]["pairs"])
 
 
 def is_kind(definition: dict, kind: str) -> bool:
@@ -300,19 +295,20 @@ def equality_term(key: str, value: Any, field_schema: dict, defs: dict) -> tuple
     name = columns[0].name
     encoded = codec.encode(value)[name]
     if encoded is None:
-        return f"n.{name} IS NULL", {}
-    return f"n.{name} = ${name}", {name: encoded}
+        return query.is_null(name), {}
+    return query.equality(name), {name: encoded}
 
 
-def equality_filter(label: str, document: dict, where: dict) -> tuple[str, dict]:
-    """A `WHERE n.col = $col AND …` clause plus its encoded parameters for an equality filter.
+def equality_filter(label: str, document: dict, where: dict) -> tuple[list[str], dict]:
+    """The `n.col = $col` filter terms plus their encoded parameters for an equality filter.
 
     Each key is a field of the node type; its value is encoded through that field's codec so the
     comparison matches the stored representation (a JSON-encoded or scalar column compares against
-    its encoded string, not the raw python value). Empty `where` yields ('', {}).
+    its encoded string, not the raw python value). Empty `where` yields ([], {}). The caller
+    renders the terms into a WHERE clause (query.match_all / query.where_clause).
     """
     if not where:
-        return "", {}
+        return [], {}
     defs = document["$defs"]
     fields = dict(node_fields(defs[label], defs))
     unknown = [key for key in where if key not in fields]
@@ -325,4 +321,4 @@ def equality_filter(label: str, document: dict, where: dict) -> tuple[str, dict]
         term, term_params = equality_term(key, value, fields[key], defs)
         terms.append(term)
         params.update(term_params)
-    return " WHERE " + " AND ".join(terms), params
+    return terms, params
