@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections.abc import Iterator
 from copy import deepcopy
 from dataclasses import field as dc_field, make_dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ from scrambler.protocols import CodecFactory
 from scrambler.schema_dsl import (
     _MISSING,
     Bool,
+    Codec,
     Float,
     Int,
     Json,
@@ -46,24 +48,26 @@ def dialect() -> dict:
 
 def resolve(schema: dict, defs: dict) -> dict:
     """Follow a single $ref into $defs; pass other schemas through unchanged."""
-    return defs[schema["$ref"].split("/")[-1]] if "$ref" in schema else schema
+    if "$ref" not in schema:
+        return schema
+    return defs[schema["$ref"].split("/")[-1]]
 
 
 def codec_for(schema: dict, defs: dict) -> CodecFactory:
     """Map a property schema (possibly a $ref) to a codec factory (name -> Codec)."""
     target = resolve(schema, defs)
     x_kuzu = target.get("x-kuzu", {})
+    codec = x_kuzu.get("codec")
 
-    if x_kuzu.get("codec") == "scalar":
+    if codec == "scalar":
         # Bind a field-derived projection name so two scalar fields don't collide
         # on a shared default column (x-kuzu.projection overrides it when given).
         return lambda name: Scalar(name, x_kuzu.get("projection") or f"{name}_num")
-    
-    if x_kuzu.get("codec") == "union":
+
+    if codec == "union":
         return NativeUnion(x_kuzu["members"], x_kuzu["projection"])
-    
+
     declared = target.get("type")
-    nullable = isinstance(declared, list) and "null" in declared
     base_type = (next(t for t in declared if t != "null")
                  if isinstance(declared, list) else declared)
     if base_type == "array":
@@ -71,10 +75,10 @@ def codec_for(schema: dict, defs: dict) -> CodecFactory:
                 else NativeList(element_kuzu(target, defs)))
     elif base_type == "object":
         kind = (NativeMap("STRING", value_kuzu(target, defs))
-                if x_kuzu.get("codec") == "map" else Json)
+                if codec == "map" else Json)
     else:
         kind = SCALAR_CODECS[base_type]
-    return Opt(kind) if nullable else kind
+    return Opt(kind) if isinstance(declared, list) and "null" in declared else kind
 
 
 def element_kuzu(array_schema: dict, defs: dict) -> str:
@@ -101,12 +105,17 @@ def node_fields(node: dict, defs: dict) -> list[tuple[str, dict]]:
     return list(fields.items())
 
 
+def bound_codecs(node: dict, defs: dict) -> Iterator[tuple[str, Codec]]:
+    """Each field's (name, bound codec) — node_fields with codec_for applied."""
+    for name, schema in node_fields(node, defs):
+        yield name, codec_for(schema, defs)(name)
+
+
 def node_ddl(label: str, node: dict, defs: dict) -> str:
     """CREATE NODE TABLE for one node type (canonical columns then projections)."""
 
     columns = []
-    for name, schema in node_fields(node, defs):
-        codec = codec_for(schema, defs)(name)
+    for _name, codec in bound_codecs(node, defs):
         columns.extend(f"{column.name} {column.kuzu}"
                        for column in (*codec.columns, *codec.projections))
     primary_key = node["x-kuzu"]["primaryKey"]
@@ -120,8 +129,7 @@ def merge_for(label: str, document: dict) -> str:
     defs = document["$defs"]
     node = defs[label]
     columns = []
-    for name, schema in node_fields(node, defs):
-        codec = codec_for(schema, defs)(name)
+    for _name, codec in bound_codecs(node, defs):
         columns.extend((*codec.columns, *codec.projections))
     primary_key = node["x-kuzu"]["primaryKey"]
     sets = ", ".join(f"n.{column.name} = {column.binding()}"
@@ -145,8 +153,7 @@ def encode_mapping(label: str, document: dict, values: dict) -> dict:
     """Encode a full field->value mapping into a parameters dict (columns + projections)."""
     defs = document["$defs"]
     params: dict = {}
-    for name, schema in node_fields(defs[label], defs):
-        codec = codec_for(schema, defs)(name)
+    for name, codec in bound_codecs(defs[label], defs):
         params.update(codec.encode(values[name]))
         params.update(codec.project(values[name]))
     return params
@@ -189,7 +196,8 @@ def check_schema(document: dict) -> None:
 def record_schema(label: str, document: dict) -> dict:
     """The JSON Schema a node type's record must satisfy: its $defs entry plus the document's
     $defs, so the property `$ref`s (and their enum/type/required constraints) resolve."""
-    return {**document["$defs"][label], "$defs": document["$defs"]}
+    defs = document["$defs"]
+    return {**defs[label], "$defs": defs}
 
 
 def schema_ddls(document: dict) -> list[str]:
@@ -234,8 +242,8 @@ def encode_row(label: str, document: dict, record: Any) -> dict:
     """Stored-record -> parameters dict (canonical columns + projections)."""
     defs = document["$defs"]
     row: dict = {}
-    for name, schema in node_fields(defs[label], defs):
-        codec, value = codec_for(schema, defs)(name), getattr(record, name)
+    for name, codec in bound_codecs(defs[label], defs):
+        value = getattr(record, name)
         row.update(codec.encode(value))
         row.update(codec.project(value))
     return row
@@ -249,8 +257,7 @@ def decode_row(label: str, document: dict, row: dict) -> dict:
     """
     defs = document["$defs"]
     values: dict = {}
-    for name, schema in node_fields(defs[label], defs):
-        codec = codec_for(schema, defs)(name)
+    for name, codec in bound_codecs(defs[label], defs):
         cells = {column.name: row[column.name] for column in codec.columns}
         values[name] = codec.decode(cells)
     return values
@@ -273,8 +280,8 @@ def column_names(label: str, document: dict) -> list[str]:
     """
     defs = document["$defs"]
     names: list[str] = []
-    for name, schema in node_fields(defs[label], defs):
-        names.extend(column.name for column in codec_for(schema, defs)(name).columns)
+    for _name, codec in bound_codecs(defs[label], defs):
+        names.extend(column.name for column in codec.columns)
     return names
 
 

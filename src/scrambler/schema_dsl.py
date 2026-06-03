@@ -4,6 +4,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from scrambler.constants import KUZU_TYPE
+from scrambler.errors import SchemaError
 from scrambler.parts import (
     Column,
     bind_value,
@@ -53,12 +55,13 @@ def Opt(inner: CodecFactory) -> CodecFactory:
 
     def make(name: str) -> Codec:
         codec = inner(name)
-        nulls = {param: None for col in codec.columns for param in col.param_names()}
-    
+        columns = codec.columns
+        nulls = {param: None for col in columns for param in col.param_names()}
+
         return Codec(
-            codec.py_type | None, codec.columns,
+            codec.py_type | None, columns,
             encode=lambda v: codec.encode(v) if v is not None else nulls,
-            decode=lambda r: None if all(r[c.name] is None for c in codec.columns)
+            decode=lambda r: None if all(r[c.name] is None for c in columns)
             else codec.decode(r),
             # Forward the inner codec's projections; project() already maps None -> None.
             projections=codec.projections,
@@ -124,10 +127,22 @@ def Scalar(name: str, projection: str = "num_value") -> Codec:
     )
 
 
+def base_kuzu_type(kuzu: str) -> str:
+    """The bare type name of a Kùzu type — drops any `(...)` parameters and normalises case.
+
+    Raises SchemaError if the string isn't a recognisable `NAME` or `NAME(...)` type token."""
+
+    match = KUZU_TYPE.fullmatch(kuzu)
+    if match is None:
+        raise SchemaError(f"not a Kùzu type: {kuzu!r}")
+
+    return match.group(1).upper()
+
+
 def union_has_string_member(members: dict) -> bool:
     """Whether a native UNION includes a STRING member."""
 
-    return any(kuzu.split("(", 1)[0].strip().upper() == "STRING" for kuzu in members.values())
+    return any(base_kuzu_type(kuzu) == "STRING" for kuzu in members.values())
 
 
 def NativeUnion(members: dict, projection: str) -> CodecFactory:
